@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Markdown → PDF</title>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<style>
+  :root {
+    --accent: #27BFC8;
+    --ink: #10201F;
+    --slate: #52696C;
+    --border: #DCE1E1;
+    --panel: #F7F9F9;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    height: 100%;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    color: var(--ink);
+    background: #ffffff;
+  }
+
+  .app-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 20px;
+    border-bottom: 1px solid var(--border);
+    background: #ffffff;
+  }
+
+  .app-bar h1 {
+    font-size: 15px;
+    font-weight: 700;
+    margin: 0;
+    color: var(--ink);
+  }
+
+  .export-btn {
+    background: var(--accent);
+    color: #ffffff;
+    border: none;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 8px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+
+  .export-btn:hover { background: #1FA6AE; }
+  .export-btn:disabled { background: #A9DADD; cursor: wait; }
+
+  .status {
+    font-size: 12px;
+    color: var(--slate);
+    margin-right: 12px;
+  }
+
+  .status.error { color: #C0392B; }
+
+  .workspace {
+    display: flex;
+    height: calc(100vh - 49px);
+  }
+
+  .pane {
+    flex: 1;
+    min-width: 0;
+    overflow-y: auto;
+  }
+
+  .editor-pane {
+    border-right: 1px solid var(--border);
+    background: var(--panel);
+  }
+
+  #source {
+    width: 100%;
+    height: 100%;
+    border: none;
+    resize: none;
+    padding: 20px;
+    font-family: ui-monospace, 'SF Mono', Consolas, monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--ink);
+    background: transparent;
+    outline: none;
+  }
+
+  .preview-pane {
+    position: relative;
+    padding: 40px 48px;
+  }
+
+  .watermark {
+    position: absolute;
+    top: 24px;
+    right: 32px;
+  }
+
+  .watermark img { height: 50px; }
+
+  #preview h1 {
+    font-size: 26px;
+    font-weight: 700;
+    color: var(--accent);
+    margin: 0 0 6px;
+    letter-spacing: -0.3px;
+  }
+
+  #preview h2 {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink);
+    margin: 28px 0 12px;
+    padding-left: 10px;
+    border-left: 3px solid var(--accent);
+  }
+
+  #preview h3 { font-size: 15px; margin: 20px 0 8px; }
+  #preview p { font-size: 13.5px; line-height: 1.6; color: var(--ink); }
+
+  #preview hr {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 20px 0;
+  }
+
+  #preview table {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: 13px;
+    border: 1px solid #C7CDCD;
+    margin-bottom: 16px;
+  }
+
+  #preview th {
+    background: #EDEFEF;
+    text-align: left;
+    font-weight: 700;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    padding: 8px 12px;
+    border-bottom: 2px solid var(--accent);
+    border-right: 1px solid #C7CDCD;
+  }
+
+  #preview th:last-child { border-right: none; }
+
+  #preview td {
+    padding: 9px 12px;
+    border-top: 1px solid #C7CDCD;
+    border-right: 1px solid #C7CDCD;
+    vertical-align: top;
+  }
+
+  #preview td:last-child { border-right: none; }
+
+  #preview tr td:first-child {
+    color: var(--slate);
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  #preview code {
+    font-family: ui-monospace, 'SF Mono', Consolas, monospace;
+    font-size: 12.5px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: #1C8A91;
+    padding: 1px 5px;
+    border-radius: 4px;
+    word-break: break-all;
+  }
+
+  #preview pre {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 14px;
+    overflow-x: auto;
+  }
+
+  #preview pre code { background: none; border: none; padding: 0; }
+  #preview a { color: var(--accent); }
+  #preview ul, #preview ol { font-size: 13.5px; line-height: 1.6; }
+
+  /* ---------- Modal ---------- */
+  .modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(16, 32, 31, 0.45);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .modal-overlay.open { display: flex; }
+
+  .modal {
+    background: #ffffff;
+    border-radius: 10px;
+    width: 92vw;
+    max-width: 480px;
+    max-height: 88vh;
+    overflow-y: auto;
+    box-shadow: 0 20px 60px rgba(16, 32, 31, 0.25);
+  }
+
+  .modal.wide { max-width: 900px; }
+
+  .modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .modal-header h2 {
+    font-size: 15px;
+    font-weight: 700;
+    margin: 0;
+    color: var(--ink);
+    text-transform: none;
+    letter-spacing: normal;
+    border-left: none;
+    padding-left: 0;
+  }
+
+  .modal-close {
+    background: none;
+    border: none;
+    font-size: 18px;
+    line-height: 1;
+    color: var(--slate);
+    cursor: pointer;
+    padding: 4px;
+  }
+
+  .modal-body { padding: 20px; }
+  .modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    padding: 14px 20px;
+    border-top: 1px solid var(--border);
+  }
+
+  .option-group { margin-bottom: 20px; }
+  .option-group:last-child { margin-bottom: 0; }
+
+  .option-label {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--slate);
+    margin-bottom: 8px;
+    display: block;
+  }
+
+  .option-row {
+    display: flex;
+    gap: 8px;
+  }
+
+  .option-choice {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 13px;
+    color: var(--ink);
+    cursor: pointer;
+    background: #ffffff;
+  }
+
+  .option-choice.selected {
+    border-color: var(--accent);
+    background: rgba(39, 191, 200, 0.08);
+    color: var(--accent);
+    font-weight: 600;
+  }
+
+  .btn {
+    font-size: 13px;
+    font-weight: 600;
+    padding: 8px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    background: #ffffff;
+    color: var(--ink);
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    color: #ffffff;
+    border-color: var(--accent);
+  }
+
+  .btn-primary:hover { background: #1FA6AE; }
+  .btn:disabled { opacity: 0.5; cursor: wait; }
+
+  .preview-frame-wrap {
+    padding: 0 20px 20px;
+  }
+
+  #resultFrame {
+    width: 100%;
+    height: 60vh;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+
+  .modal-status {
+    font-size: 13px;
+    color: var(--slate);
+    text-align: center;
+    padding: 40px 20px;
+  }
+
+  .modal-status.error { color: #C0392B; }
+</style>
+</head>
+<body>
+
+<div class="app-bar">
+  <h1>Markdown → PDF</h1>
+  <div style="display: flex; align-items: center;">
+    <span class="status" id="status"></span>
+    <button class="export-btn" id="exportBtn">Export</button>
+  </div>
+</div>
+
+<!-- Options modal -->
+<div class="modal-overlay" id="optionsOverlay">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>Export options</h2>
+      <button class="modal-close" id="optionsClose" aria-label="Close">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="option-group">
+        <span class="option-label">Page size</span>
+        <div class="option-row" id="pageSizeRow">
+          <div class="option-choice selected" data-value="A4">A4</div>
+          <div class="option-choice" data-value="Letter">Letter</div>
+        </div>
+      </div>
+      <div class="option-group">
+        <span class="option-label">Watermark</span>
+        <div class="option-row" id="watermarkRow">
+          <div class="option-choice selected" data-value="on">With logo</div>
+          <div class="option-choice" data-value="off">Without logo</div>
+        </div>
+      </div>
+      <div class="option-group">
+        <span class="option-label">Format</span>
+        <div class="option-row" id="formatRow">
+          <div class="option-choice selected" data-value="pdf">PDF</div>
+          <div class="option-choice" data-value="html">HTML</div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" id="optionsCancel">Cancel</button>
+      <button class="btn btn-primary" id="optionsGenerate">Generate</button>
+    </div>
+  </div>
+</div>
+
+<!-- Preview + download modal -->
+<div class="modal-overlay" id="previewOverlay">
+  <div class="modal wide">
+    <div class="modal-header">
+      <h2>Preview</h2>
+      <button class="modal-close" id="previewClose" aria-label="Close">✕</button>
+    </div>
+    <div id="previewBody">
+      <div class="modal-status" id="previewStatus">Generating…</div>
+      <div class="preview-frame-wrap" id="previewFrameWrap" style="display: none;">
+        <iframe id="resultFrame"></iframe>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" id="previewBack">Back to options</button>
+      <button class="btn btn-primary" id="previewDownload" disabled>Download</button>
+    </div>
+  </div>
+</div>
+
+<div class="workspace">
+  <div class="pane editor-pane">
+    <textarea id="source" spellcheck="false"></textarea>
+  </div>
+  <div class="pane preview-pane">
+    <div class="watermark">
+      <img src="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTEyIiBoZWlnaHQ9IjQ2IiB2aWV3Qm94PSIwIDAgMTEyIDQ2IiBmaWxsPSJub25lIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPgo8cGF0aCBkPSJNNDMuNjk5NCAyOS4yMzY4QzQzLjY5OTQgMjguMDE2OCA0NC40ODYxIDI3LjA5NjUgNDUuMzc0NyAyNi41NTkxQzQ1LjAwNjMgMjYuMjcxNiA0NC43MDYzIDI1LjkwNTQgNDQuNDk2NSAyNS40ODcxQzQ0LjI4NjYgMjUuMDY4NyA0NC4xNzIyIDI0LjYwODggNDQuMTYxNSAyNC4xNDA2QzQ0LjE2MTUgMTkuNDIwMSA1Mi43NDQ1IDE5LjExMDkgNTIuNzQ0NSAyNC4xNDA2QzUyLjczNzQgMjQuNjExNSA1Mi42MjI1IDI1LjA3NDUgNTIuNDA4OSAyNS40OTM4QzUyLjE5NTIgMjUuOTEzMSA1MS44ODg1IDI2LjI3NzYgNTEuNTEyMiAyNi41NTkxQzUyLjAyMTcgMjYuODAzNiA1Mi40NTI0IDI3LjE4NzEgNTIuNzU0OSAyNy42NjU3QzUzLjA1NzUgMjguMTQ0MiA1My4yMTk3IDI4LjY5ODYgNTMuMjIzMSAyOS4yNjUzQzUzLjIyMzEgMzEuOTkzIDUwLjkxNTEgMzMuMDM5NCA0OC41NTQ5IDMzLjAzOTRDNDUuOTkwOSAzMy4wMzk0IDQzLjY5OTQgMzEuOTc2NCA0My42OTk0IDI5LjI0ODdNNTAuOTgzOCAyOS4yNjUzQzUwLjk4MzggMjYuOTY1NyA0NS45MjIxIDI3LjAzMjMgNDUuOTIyMSAyOS4yNjUzQzQ1LjkyMjEgMzEuNDk4NCA1MC45ODM4IDMxLjY0MzQgNTAuOTgzOCAyOS4yNjUzWk01MC41MzgzIDI0LjAxMjJDNTAuNTM4MyAyMi4wNzQgNDYuMzY3NiAyMi4wOTMgNDYuMzY3NiAyNC4wMTIyQzQ2LjM2NzYgMjUuOTMxMyA1MC41MzgzIDI1Ljk2OTMgNTAuNTM4MyAyNC4wMTIyWiIgZmlsbD0iIzI4QkRDNyIvPgo8cGF0aCBkPSJNNjEuMjM5OCAzMS45NDc4TDU2LjcyNTUgMjIuNDU2OUM1Ni4wNTk3IDIxLjEwMTMgNTguMDc2MyAxOS45ODYgNTguODI3NSAyMS40MTA1TDYwLjM1MTIgMjQuODU4N0w2Mi4zMTggMjkuMzc3MUw2NC4yNDkzIDI0Ljg1ODdMNjUuNzcwNiAyMS40MTc2QzY2LjQ1NTUgMjAuMTE0NCA2OC40Mzg5IDIwLjk0MiA2Ny44NTYgMjIuMzY4OUw2My40OTU3IDMxLjk2MjFDNjMuMTA0NyAzMy4wNDE3IDYxLjg4OTEgMzMuMzAwOSA2MS4yMzk4IDMxLjk2MjEiIGZpbGw9IiMyOEJEQzciLz4KPHBhdGggZD0iTTY5LjY4NzcgMjEuODc0MkM2OS42ODc3IDIwLjQ2ODggNzEuOTQzNyAyMC40MTY1IDcxLjk0MzcgMjEuODc0MlYzMS42NzJDNzEuOTQzNyAzMy4wOTg4IDY5LjY4NzcgMzMuMTI5NyA2OS42ODc3IDMxLjY3MlYyMS44NzQyWiIgZmlsbD0iIzI4QkRDNyIvPgo8cGF0aCBkPSJNNzUuNTE5NSAzMi43MTg0Qzc1LjM3OTcgMzIuNzIwNiA3NS4yNDA4IDMyLjY5NDcgNzUuMTExMiAzMi42NDIxQzc0Ljk4MTUgMzIuNTg5NSA3NC44NjM3IDMyLjUxMTMgNzQuNzY0NyAzMi40MTIyQzc0LjY2NTcgMzIuMzEzIDc0LjU4NzUgMzIuMTk1IDc0LjUzNDggMzIuMDY1Qzc0LjQ4MjEgMzEuOTM1IDc0LjQ1NiAzMS43OTU3IDc0LjQ1NzkgMzEuNjU1NFYyMS45MDUyQzc0LjQ1NDMgMjEuNzY0NCA3NC40NzkzIDIxLjYyNDQgNzQuNTMxNCAyMS40OTM2Qzc0LjU4MzUgMjEuMzYyOSA3NC42NjE2IDIxLjI0NDEgNzQuNzYxIDIxLjE0NDdDNzQuODYwMyAyMS4wNDUyIDc0Ljk3ODggMjAuOTY3MSA3NS4xMDkyIDIwLjkxNTFDNzUuMjM5NiAyMC44NjMxIDc1LjM3OTIgMjAuODM4MyA3NS41MTk1IDIwLjg0MjJIODEuNjU3QzgxLjgwOTEgMjAuODMyMiA4MS45NjE1IDIwLjg1MzcgODIuMTA1IDIwLjkwNTJDODIuMjQ4NSAyMC45NTY3IDgyLjM3OTggMjEuMDM3MyA4Mi40OTExIDIxLjE0MThDODIuNjAyMyAyMS4yNDY0IDgyLjY5MDkgMjEuMzcyNyA4Mi43NTE1IDIxLjUxM0M4Mi44MTIxIDIxLjY1MzMgODIuODQzNCAyMS44MDQ2IDgyLjg0MzQgMjEuOTU3NUM4Mi44NDM0IDIyLjExMDQgODIuODEyMSAyMi4yNjE3IDgyLjc1MTUgMjIuNDAyQzgyLjY5MDkgMjIuNTQyMyA4Mi42MDIzIDIyLjY2ODcgODIuNDkxMSAyMi43NzMyQzgyLjM3OTggMjIuODc3NyA4Mi4yNDg1IDIyLjk1ODMgODIuMTA1IDIzLjAwOThDODEuOTYxNSAyMy4wNjE0IDgxLjgwOTEgMjMuMDgyOCA4MS42NTcgMjMuMDcyOEg3Ni43MzI4VjI1LjY0NTlIODEuMDQ4QzgyLjU3MTcgMjUuNjQ1OSA4Mi41NzE3IDI3Ljg5NTYgODEuMDQ4IDI3Ljg5NTZINzYuNzMyOFYzMC40Njg3SDgxLjk0NjFDODMuNTAwNiAzMC40Njg3IDgzLjYyMTUgMzIuNzE2IDgxLjk0NjEgMzIuNzE2TDc1LjUxOTUgMzIuNzE4NFoiIGZpbGw9IiMyOEJEQzciLz4KPHBhdGggZD0iTTk2Ljk0NCAyOC42MTg1TDk5LjQ5MTQgMjEuNTQ4NUMxMDAuMDAzIDIwLjE1NzMgMTAyLjA3MiAyMC44MTEzIDEwMS41NiAyMi4zMDIzTDk4LjE3MzggMzEuNTE3NEM5Ny44NjM0IDMyLjQ5NzIgOTcuNTc0MyAzMi43ODczIDk2Ljk4OSAzMi43ODczQzk2LjM3MjkgMzIuNzg3MyA5Ni4xODU3IDMyLjQxMTYgOTUuODQ0NCAzMS43OTMzTDkyLjg3MjggMjUuMDEzNEw5MC4wMjkyIDMxLjY4ODZDODkuNzIxMiAzMi40MDIxIDg5LjQyOTcgMzIuODIwNiA4OC44MTM2IDMyLjgyMDZDODguMTk3NCAzMi44MjA2IDg3LjkwODMgMzIuNDExNiA4Ny42Mjg3IDMxLjY1NTRMODQuMzExMiAyMi4zMDIzQzgzLjc5OTMgMjAuNzU5IDg1Ljk2OTkgMjAuMTkzIDg2LjQxNTQgMjEuNTQ4NUw4OC45NDYzIDI4LjYxODVMOTEuOTcyNCAyMS41NDg1QzkyLjM4MjMgMjAuNTAyMSA5My40NjA1IDIwLjQ0OTggOTMuOTAzNyAyMS40OTYyTDk2Ljk0NCAyOC42MTg1WiIgZmlsbD0iIzI4QkRDNyIvPgo8cGF0aCBkPSJNMTAyLjk4IDIzLjQxNzZDMTAzLjM3MyAyMC4wODgzIDEwOC4zODIgMTkuNDg5IDExMC43NCAyMS4zMDgzQzExMS45MDQgMjIuMjU5NSAxMTAuNjc0IDIzLjc0NTggMTA5LjY0NSAyMi45ODk2QzEwOC4zODIgMjIuMTgzNCAxMDUuNTEgMjEuODAwNSAxMDUuMTQzIDIzLjU5MTJDMTA0LjY4MSAyNi40MDQ1IDExMi4xMTkgMjQuNzgwMyAxMTEuOTk5IDI5LjM1NTdDMTExLjg4IDMzLjcxNDggMTA1LjU4OSAzMy44MTcgMTAzLjIzMSAzMS44NTk5QzEwMi45OTEgMzEuNjU4NyAxMDIuODM0IDMxLjM3NTUgMTAyLjc5IDMxLjA2NDlDMTAyLjc0NiAzMC43NTQ0IDEwMi44MTkgMzAuNDM4NiAxMDIuOTk0IDMwLjE3ODVDMTAzLjQzOSAyOS43MzE1IDEwMy45NDIgMjkuNTc2OSAxMDQuNTE1IDMwLjA1NzNDMTA1LjkxOCAzMS4wMDg1IDEwOS41MjUgMzEuNzQxIDEwOS43ODEgMjkuMzAzNEMxMDkuNTYgMjYuNzYzNiAxMDIuNDQ2IDI4LjI5MjcgMTAyLjk3NyAyMy40MTc2IiBmaWxsPSIjMjhCREM3Ii8+CjxwYXRoIGQ9Ik0yNy45NjcgMjMuMjI1SDMwLjg1OEMzMS4yNDQ1IDIzLjIyNSAzMS42MTUyIDIzLjA3MDkgMzEuODg4NSAyMi43OTY2QzMyLjE2MTggMjIuNTIyMyAzMi4zMTU0IDIyLjE1MDMgMzIuMzE1NCAyMS43NjI0QzMyLjMxNTQgMjEuMzc0NiAzMi4xNjE4IDIxLjAwMjYgMzEuODg4NSAyMC43MjgzQzMxLjYxNTIgMjAuNDU0IDMxLjI0NDUgMjAuMjk5OSAzMC44NTggMjAuMjk5OUgyNy45NjdDMjcuNTgwNSAyMC4yOTk5IDI3LjIwOTggMjAuNDU0IDI2LjkzNjUgMjAuNzI4M0MyNi42NjMyIDIxLjAwMjYgMjYuNTA5NiAyMS4zNzQ2IDI2LjUwOTYgMjEuNzYyNEMyNi41MDk2IDIyLjE1MDMgMjYuNjYzMiAyMi41MjIzIDI2LjkzNjUgMjIuNzk2NkMyNy4yMDk4IDIzLjA3MDkgMjcuNTgwNSAyMy4yMjUgMjcuOTY3IDIzLjIyNVoiIGZpbGw9IiMyOEJEQzciLz4KPHBhdGggZD0iTTI5LjU4MDcgMjguNjIwOUwzMy4zNDM4IDMyLjM5NzNDMzMuNjE3MiAzMi42NzE2IDMzLjk4OCAzMi44MjU4IDM0LjM3NDYgMzIuODI1OEMzNC43NjEyIDMyLjgyNTggMzUuMTMyIDMyLjY3MTYgMzUuNDA1NCAzMi4zOTczQzM1LjY3ODggMzIuMTIyOSAzNS44MzI0IDMxLjc1MDggMzUuODMyNCAzMS4zNjI4QzM1LjgzMjQgMzAuOTc0OCAzNS42Nzg4IDMwLjYwMjcgMzUuNDA1NCAzMC4zMjgzTDMxLjY0IDI2LjU1MTlDMzEuNTA1OCAyNi40MTEgMzEuMzQ0OSAyNi4yOTgzIDMxLjE2NjcgMjYuMjIwNkMzMC45ODg1IDI2LjE0MyAzMC43OTY3IDI2LjEwMTggMzAuNjAyNCAyNi4wOTk2QzMwLjQwODEgMjYuMDk3NSAzMC4yMTU0IDI2LjEzNDMgMzAuMDM1NSAyNi4yMDc5QzI5Ljg1NTcgMjYuMjgxNiAyOS42OTIzIDI2LjM5MDYgMjkuNTU1IDI2LjUyODVDMjkuNDE3NyAyNi42NjY0IDI5LjMwOTMgMjYuODMwNSAyOS4yMzYxIDI3LjAxMTFDMjkuMTYyOSAyNy4xOTE3IDI5LjEyNjQgMjcuMzg1MiAyOS4xMjg4IDI3LjU4MDFDMjkuMTMxMiAyNy43NzUxIDI5LjE3MjQgMjcuOTY3NiAyOS4yNTAxIDI4LjE0NjNDMjkuMzI3NyAyOC4zMjUgMjkuNDQwMSAyOC40ODY0IDI5LjU4MDcgMjguNjIwOVoiIGZpbGw9IiMyOEJEQzciLz4KPHBhdGggZD0iTTI2LjkxOTYgMzMuNTgzOVY0MS41OTFDMjYuOTM0OCA0MS45Njg5IDI3LjA5NTEgNDIuMzI2NCAyNy4zNjY5IDQyLjU4ODRDMjcuNjM4OCA0Mi44NTA1IDI4LjAwMTIgNDIuOTk2OCAyOC4zNzgxIDQyLjk5NjhDMjguNzU1MSA0Mi45OTY4IDI5LjExNzQgNDIuODUwNSAyOS4zODkzIDQyLjU4ODRDMjkuNjYxMiA0Mi4zMjY0IDI5LjgyMTUgNDEuOTY4OSAyOS44MzY3IDQxLjU5MVYzMy41ODM5QzI5LjgyMTUgMzMuMjA1OSAyOS42NjEyIDMyLjg0ODUgMjkuMzg5MyAzMi41ODY0QzI5LjExNzQgMzIuMzI0NCAyOC43NTUxIDMyLjE3OCAyOC4zNzgxIDMyLjE3OEMyOC4wMDEyIDMyLjE3OCAyNy42Mzg4IDMyLjMyNDQgMjcuMzY2OSAzMi41ODY0QzI3LjA5NTEgMzIuODQ4NSAyNi45MzQ4IDMzLjIwNTkgMjYuOTE5NiAzMy41ODM5WiIgZmlsbD0iIzI4QkRDNyIvPgo8cGF0aCBkPSJNMjEuNTQ1MiAzNS4yMTA2TDEzLjc0ODkgNDMuMDI3NEMxMy40ODYgNDMuMzAzNiAxMy4zNDEzIDQzLjY3MiAxMy4zNDU1IDQ0LjA1MzlDMTMuMzQ5OCA0NC40MzU4IDEzLjUwMjcgNDQuODAwOSAxMy43NzE3IDQ1LjA3MTFDMTQuMDQwNiA0NS4zNDEzIDE0LjQwNDIgNDUuNDk1MiAxNC43ODQ4IDQ1LjQ5OTlDMTUuMTY1MyA0NS41MDQ2IDE1LjUzMjYgNDUuMzU5OCAxNS44MDgxIDQ1LjA5NjNMMjMuNjA0NCAzNy4yNzQ4QzIzLjc1MTYgMzcuMTQxOSAyMy44NzAyIDM2Ljk4MDQgMjMuOTUzMSAzNi44QzI0LjAzNiAzNi42MTk3IDI0LjA4MTUgMzYuNDI0MiAyNC4wODY2IDM2LjIyNTdDMjQuMDkxOCAzNi4wMjcxIDI0LjA1NjYgMzUuODI5NSAyMy45ODMyIDM1LjY0NTFDMjMuOTA5OCAzNS40NjA2IDIzLjc5OTcgMzUuMjkzMSAyMy42NTk3IDM1LjE1MjdDMjMuNTE5NyAzNS4wMTIzIDIzLjM1MjYgMzQuOTAyIDIzLjE2ODcgMzQuODI4NkMyMi45ODQ4IDM0Ljc1NTEgMjIuNzg3OSAzNC43MiAyMi41OSAzNC43MjU1QzIyLjM5MjIgMzQuNzMwOSAyMi4xOTc1IDM0Ljc3NjcgMjIuMDE3OCAzNC44NjAxQzIxLjgzODIgMzQuOTQzNSAyMS42Nzc0IDM1LjA2MjggMjEuNTQ1MiAzNS4yMTA2WiIgZmlsbD0iIzI4QkRDNyIvPgo8cGF0aCBkPSJNMTYuNTkyNSAzMi41Mzc2SDMuNTA5NDNDMy4zMTMyNiAzMi41Mjk3IDMuMTE3NTEgMzIuNTYxNiAyLjkzMzk0IDMyLjYzMTVDMi43NTAzNyAzMi43MDEzIDIuNTgyNzUgMzIuODA3NyAyLjQ0MTE1IDMyLjk0NDJDMi4yOTk1NiAzMy4wODA2IDIuMTg2OSAzMy4yNDQ0IDIuMTA5OTQgMzMuNDI1N0MyLjAzMjk5IDMzLjYwNjkgMS45OTMzMiAzMy44MDE5IDEuOTkzMzIgMzMuOTk5QzEuOTkzMzIgMzQuMTk2IDIuMDMyOTkgMzQuMzkxIDIuMTA5OTQgMzQuNTcyMkMyLjE4NjkgMzQuNzUzNSAyLjI5OTU2IDM0LjkxNzMgMi40NDExNSAzNS4wNTM4QzIuNTgyNzUgMzUuMTkwMiAyLjc1MDM3IDM1LjI5NjYgMi45MzM5NCAzNS4zNjY1QzMuMTE3NTEgMzUuNDM2MyAzLjMxMzI2IDM1LjQ2ODIgMy41MDk0MyAzNS40NjAzSDE2LjU5MjVDMTYuNzg4NiAzNS40NjgyIDE2Ljk4NDQgMzUuNDM2MyAxNy4xNjggMzUuMzY2NUMxNy4zNTE1IDM1LjI5NjYgMTcuNTE5MiAzNS4xOTAyIDE3LjY2MDggMzUuMDUzOEMxNy44MDI0IDM0LjkxNzMgMTcuOTE1IDM0Ljc1MzUgMTcuOTkyIDM0LjU3MjJDMTguMDY4OSAzNC4zOTEgMTguMTA4NiAzNC4xOTYgMTguMTA4NiAzMy45OTlDMTguMTA4NiAzMy44MDE5IDE4LjA2ODkgMzMuNjA2OSAxNy45OTIgMzMuNDI1N0MxNy45MTUgMzMuMjQ0NCAxNy44MDI0IDMzLjA4MDYgMTcuNjYwOCAzMi45NDQyQzE3LjUxOTIgMzIuODA3NyAxNy4zNTE1IDMyLjcwMTMgMTcuMTY4IDMyLjYzMTVDMTYuOTg0NCAzMi41NjE2IDE2Ljc4ODYgMzIuNTI5NyAxNi41OTI1IDMyLjUzNzZaIiBmaWxsPSIjMjhCREM3Ii8+CjxwYXRoIGQ9Ik0xNS4wMDI1IDI3LjE2MDdMMi40ODEwMyAxNC41OTQ5QzIuMzQ4ODUgMTQuNDYxMiAyLjE5MTYgMTQuMzU1IDIuMDE4MzMgMTQuMjgyNkMxLjg0NTA3IDE0LjIxMDEgMS42NTkyMyAxNC4xNzI5IDEuNDcxNTQgMTQuMTcyOUMxLjI4Mzg0IDE0LjE3MjkgMS4wOTggMTQuMjEwMSAwLjkyNDc0MiAxNC4yODI2QzAuNzUxNDgxIDE0LjM1NSAwLjU5NDIyNyAxNC40NjEyIDAuNDYyMDUxIDE0LjU5NDlMMC40MjE3NjYgMTQuNjM1M0MwLjI4ODE0NCAxNC43NjggMC4xODIwNjYgMTQuOTI2IDAuMTA5NjcxIDE1LjEwMDFDMC4wMzcyNzYgMTUuMjc0MiAwIDE1LjQ2MDkgMCAxNS42NDk2QzAgMTUuODM4MiAwLjAzNzI3NiAxNi4wMjUgMC4xMDk2NzEgMTYuMTk5MUMwLjE4MjA2NiAxNi4zNzMyIDAuMjg4MTQ0IDE2LjUzMTIgMC40MjE3NjYgMTYuNjYzOEwxMi45NDA4IDI5LjIyNzNDMTMuMDczIDI5LjM2MTQgMTMuMjMwNCAyOS40Njc4IDEzLjQwMzkgMjkuNTQwNUMxMy41Nzc0IDI5LjYxMzEgMTMuNzYzNSAyOS42NTA1IDEzLjk1MTUgMjkuNjUwNUMxNC4xMzk1IDI5LjY1MDUgMTQuMzI1NiAyOS42MTMxIDE0LjQ5OTEgMjkuNTQwNUMxNC42NzI2IDI5LjQ2NzggMTQuODMgMjkuMzYxNCAxNC45NjIyIDI5LjIyNzNMMTUuMDAyNSAyOS4xODY5QzE1LjEzNTcgMjkuMDU0MiAxNS4yNDE1IDI4Ljg5NjQgMTUuMzEzNyAyOC43MjI1QzE1LjM4NTkgMjguNTQ4NyAxNS40MjMgMjguMzYyMiAxNS40MjMgMjguMTczOEMxNS40MjMgMjcuOTg1NCAxNS4zODU5IDI3Ljc5ODkgMTUuMzEzNyAyNy42MjUxQzE1LjI0MTUgMjcuNDUxMiAxNS4xMzU3IDI3LjI5MzQgMTUuMDAyNSAyNy4xNjA3WiIgZmlsbD0iIzI4QkRDNyIvPgo8cGF0aCBkPSJNMTcuNjQyMyAyMi4xNzYzVjEuOTYyNTJDMTcuNjQyMyAxLjU3NDY0IDE3LjQ4ODcgMS4yMDI2NCAxNy4yMTU0IDAuOTI4MzYzQzE2Ljk0MjEgMC42NTQwODcgMTYuNTcxNCAwLjUgMTYuMTg0OSAwLjVDMTUuNzk4NCAwLjUgMTUuNDI3NyAwLjY1NDA4NyAxNS4xNTQ0IDAuOTI4MzYzQzE0Ljg4MTEgMS4yMDI2NCAxNC43Mjc2IDEuNTc0NjQgMTQuNzI3NiAxLjk2MjUyVjIyLjE3NjNDMTQuNzI3NiAyMi41NjQyIDE0Ljg4MTEgMjIuOTM2MiAxNS4xNTQ0IDIzLjIxMDRDMTUuNDI3NyAyMy40ODQ3IDE1Ljc5ODQgMjMuNjM4OCAxNi4xODQ5IDIzLjYzODhDMTYuNTcxNCAyMy42Mzg4IDE2Ljk0MjEgMjMuNDg0NyAxNy4yMTU0IDIzLjIxMDRDMTcuNDg4NyAyMi45MzYyIDE3LjY0MjMgMjIuNTY0MiAxNy42NDIzIDIyLjE3NjNaIiBmaWxsPSIjMjhCREM3Ii8+CjxwYXRoIGQ9Ik0yMy4wMTkxIDIwLjU1NDRMMzkuMjM5NiA0LjI3NjQzQzM5LjUwMjEgMy45OTk5MyAzOS42NDY1IDMuNjMxMzUgMzkuNjQxOCAzLjI0OTQ1QzM5LjYzNzEgMi44Njc1NiAzOS40ODM3IDIuNTAyNjcgMzkuMjE0NCAyLjIzMjc2QzM4Ljk0NTIgMS45NjI4NiAzOC41ODE0IDEuODA5MzYgMzguMjAwOCAxLjgwNTA4QzM3LjgyMDMgMS44MDA4MSAzNy40NTMyIDEuOTQ2MDkgMzcuMTc4IDIuMjA5ODdMMjAuOTU5OCAxOC40ODc5QzIwLjY4NjcgMTguNzYxOSAyMC41MzMzIDE5LjEzMzYgMjAuNTMzMyAxOS41MjEyQzIwLjUzMzMgMTkuOTA4NyAyMC42ODY3IDIwLjI4MDQgMjAuOTU5OCAyMC41NTQ0QzIxLjIzMjkgMjAuODI4NSAyMS42MDMzIDIwLjk4MjQgMjEuOTg5NCAyMC45ODI0QzIyLjM3NTYgMjAuOTgyNCAyMi43NDYgMjAuODI4NSAyMy4wMTkxIDIwLjU1NDRaIiBmaWxsPSIjMjhCREM3Ii8+Cjwvc3ZnPgo=" alt="8VIEWS">
+    </div>
+    <div id="preview"></div>
+  </div>
+</div>
+
+<script>
+  const DEFAULT_MD = `# Aadarsh — Credentials Handover
+
+**Live URL** — https://aadarshfoods.com
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Framework | Next.js |
+| Database | SQLite |
+
+## Server
+
+| Item | Value |
+|---|---|
+| Provider | DigitalOcean |
+| Droplet plan | 1 vCPU · 1 GB RAM · 25 GB Disk — $6.00/mo |
+| App path | \`/var/www/aadarsh\` |
+| Process manager | PM2 — \`pm2 restart aadarsh\` |
+
+---
+
+For more information, contact 8views.
+`;
+
+  const source = document.getElementById('source');
+  const preview = document.getElementById('preview');
+  const exportBtn = document.getElementById('exportBtn');
+
+  function render() {
+    preview.innerHTML = marked.parse(source.value);
+  }
+
+  source.value = DEFAULT_MD;
+  source.addEventListener('input', render);
+  render();
+
+  // ---------- Options modal ----------
+  const optionsOverlay = document.getElementById('optionsOverlay');
+  const previewOverlay = document.getElementById('previewOverlay');
+  const optionsClose = document.getElementById('optionsClose');
+  const optionsCancel = document.getElementById('optionsCancel');
+  const optionsGenerate = document.getElementById('optionsGenerate');
+
+  const state = { pageSize: 'A4', watermark: 'on', format: 'pdf' };
+
+  function wireChoiceRow(rowId, stateKey) {
+    const row = document.getElementById(rowId);
+    row.querySelectorAll('.option-choice').forEach((el) => {
+      el.addEventListener('click', () => {
+        row.querySelectorAll('.option-choice').forEach((c) => c.classList.remove('selected'));
+        el.classList.add('selected');
+        state[stateKey] = el.dataset.value;
+      });
+    });
+  }
+
+  wireChoiceRow('pageSizeRow', 'pageSize');
+  wireChoiceRow('watermarkRow', 'watermark');
+  wireChoiceRow('formatRow', 'format');
+
+  function openOptions() { optionsOverlay.classList.add('open'); }
+  function closeOptions() { optionsOverlay.classList.remove('open'); }
+
+  exportBtn.addEventListener('click', openOptions);
+  optionsClose.addEventListener('click', closeOptions);
+  optionsCancel.addEventListener('click', closeOptions);
+
+  // ---------- Preview / download modal ----------
+  const previewClose = document.getElementById('previewClose');
+  const previewBack = document.getElementById('previewBack');
+  const previewDownload = document.getElementById('previewDownload');
+  const previewStatus = document.getElementById('previewStatus');
+  const previewFrameWrap = document.getElementById('previewFrameWrap');
+  const resultFrame = document.getElementById('resultFrame');
+
+  let resultBlob = null;
+  let resultUrl = null;
+
+  function openPreview() { previewOverlay.classList.add('open'); }
+  function closePreview() {
+    previewOverlay.classList.remove('open');
+    if (resultUrl) { URL.revokeObjectURL(resultUrl); resultUrl = null; }
+    resultFrame.src = 'about:blank';
+  }
+
+  previewClose.addEventListener('click', closePreview);
+  previewBack.addEventListener('click', () => { closePreview(); openOptions(); });
+
+  optionsGenerate.addEventListener('click', async () => {
+    closeOptions();
+    resultBlob = null;
+    previewDownload.disabled = true;
+    previewFrameWrap.style.display = 'none';
+    previewStatus.style.display = 'block';
+    previewStatus.textContent = 'Generating…';
+    previewStatus.classList.remove('error');
+    openPreview();
+
+    try {
+      if (state.format === 'html') {
+        const html = buildStandaloneHtml(source.value, state.watermark === 'on');
+        resultBlob = new Blob([html], { type: 'text/html' });
+      } else {
+        const res = await fetch('/export', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            markdown: source.value,
+            pageSize: state.pageSize,
+            watermark: state.watermark === 'on',
+          }),
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(text || 'Server error');
+        }
+        resultBlob = await res.blob();
+      }
+
+      resultUrl = URL.createObjectURL(resultBlob);
+      resultFrame.src = resultUrl;
+      previewStatus.style.display = 'none';
+      previewFrameWrap.style.display = 'block';
+      previewDownload.disabled = false;
+    } catch (err) {
+      previewStatus.textContent = 'Failed: ' + err.message;
+      previewStatus.classList.add('error');
+    }
+  });
+
+  previewDownload.addEventListener('click', () => {
+    if (!resultBlob) return;
+    const a = document.createElement('a');
+    a.href = resultUrl;
+    a.download = state.format === 'html' ? 'document.html' : 'document.pdf';
+    a.click();
+  });
+
+  function buildStandaloneHtml(mdSource, withWatermark) {
+    const bodyHtml = marked.parse(mdSource);
+    const watermarkHtml = withWatermark
+      ? `<div style="position: fixed; top: 24px; right: 32px;"><img src="${document.querySelector('.watermark img').src}" style="height: 50px;"></div>`
+      : '';
+    const styles = document.querySelector('style').textContent;
+    return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>${styles}</style></head><body style="padding: 40px 48px; position: relative;">${watermarkHtml}<div id="preview">${bodyHtml}</div></body></html>`;
+  }
+</script>
+
+</body>
+</html>
